@@ -9,9 +9,15 @@
 import UIKit
 import LocalAuthentication
 
+enum KeyChainKeys: String {
+    case password = "password"
+    case secretMessage = "SecretMessage"
+}
+
 class ViewController: UIViewController {
 
     @IBOutlet var secret: UITextView!
+    
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -25,17 +31,19 @@ class ViewController: UIViewController {
         title = "Nothing to see here"
         
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .close , target: self, action: #selector(lockScreen))
+        navigationItem.rightBarButtonItem?.isEnabled = false
         
     }
     
     @objc func lockScreen(){
         
         saveSecretMessage()
+        navigationItem.rightBarButtonItem?.isEnabled = false
         secret.isHidden = true
         
     }
     
-    @IBAction func authenticateTapped(_ sender: Any) {
+    fileprivate func biometricLogin() {
         let context = LAContext()
         var error: NSError?
         
@@ -43,7 +51,7 @@ class ViewController: UIViewController {
             
             let reason = "Identify Yourself"
             context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) {
-                 [weak self] success, authenticationError in
+                [weak self] success, authenticationError in
                 DispatchQueue.main.async {
                     if success {
                         self?.unlockSecretMessage()
@@ -60,11 +68,39 @@ class ViewController: UIViewController {
             ac.addAction(UIAlertAction(title: "OK", style: .default))
             present(ac, animated: true)
         }
+    }
+    
+    @IBAction func authenticateTapped(_ sender: Any) {
         
+        if let password = KeychainWrapper.standard.string(forKey: KeyChainKeys.password.rawValue) {
+            let ac = UIAlertController(title: "Password step", message: "Please fill your password below", preferredStyle: .alert)
+            ac.addTextField()
+            ac.textFields?.first?.isSecureTextEntry = true
+            ac.addAction(UIAlertAction(title: "send", style: .default, handler: { [weak self] _ in
+                if ac.textFields?[0].text == password {
+                    self?.biometricLogin()
+                }
+            }))
+            present(ac, animated: true)
+        } else {
+            let ac = UIAlertController(title: "Create password", message: "Create or own password below...", preferredStyle: .alert)
+            ac.addTextField()
+            ac.addAction(UIAlertAction(title: "create", style: .default, handler: { [weak self] _ in
+                
+                if let password = ac.textFields?[0].text {
+                    KeychainWrapper.standard.set(password, forKey: KeyChainKeys.password.rawValue)
+                    let ac2 = UIAlertController(title: "Password created", message: "Your password is safe with us (:", preferredStyle: .alert)
+                    ac2.addAction(UIAlertAction(title: "Ok", style: .default))
+                    self?.present(ac2, animated: true)
+                } else {
+                    fatalError()
+                }
+            }))
+            present(ac, animated: true)
+        }
     }
     
     // MARK: this is the keyboard frame adjustment
-
     @objc func adjustForKeyboard(notification: Notification) {
         guard let keyboardValue =
             notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue else { return}
@@ -86,15 +122,16 @@ class ViewController: UIViewController {
     
     func unlockSecretMessage(){
         secret.isHidden = false
+        navigationItem.rightBarButtonItem?.isEnabled = true
         title = "Secret Stuff!"
         
-        secret.text = KeychainWrapper.standard.string(forKey: "SecretMessage") ?? ""
+        secret.text = KeychainWrapper.standard.string(forKey: KeyChainKeys.secretMessage.rawValue) ?? ""
     }
     
     @objc func saveSecretMessage() {
         guard secret.isHidden == false else {return}
         
-        KeychainWrapper.standard.set(secret.text, forKey: "SecretMessage")
+        KeychainWrapper.standard.set(secret.text, forKey: KeyChainKeys.secretMessage.rawValue)
         secret.resignFirstResponder()
         secret.isHidden = true
         title = "Nothing to see here"
